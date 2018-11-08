@@ -21,6 +21,9 @@ void
 perf_log_printf(const char *fmt, ...);
 
 void
+perf_log_fprintf(FILE *stream, const char *fmt, ...);
+
+void
 perf_log_fatal(const char *fmt, ...);
 
 void

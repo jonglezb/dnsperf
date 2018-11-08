@@ -45,6 +45,14 @@ perf_log_printf(const char *fmt, ...)
 }
 
 void
+perf_log_fprintf(FILE *stream, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vlog(stream, NULL, fmt, args);
+}
+
+void
 perf_log_fatal(const char *fmt, ...)
 {
     va_list args;

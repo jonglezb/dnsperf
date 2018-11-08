@@ -133,6 +133,7 @@ typedef struct query_info {
 #define NQIDS 65536
 
 typedef struct {
+    unsigned int thread_id;
     query_info queries[NQIDS];
     query_list outstanding_queries;
     query_list unused_queries;
@@ -160,6 +161,8 @@ typedef struct {
     isc_uint32_t max_qps;
 
     isc_uint64_t last_recv;
+
+    FILE *plotf;
 } threadinfo_t;
 
 static threadinfo_t *threads;
@@ -177,6 +180,9 @@ static int intrpipe[2];
 static isc_mem_t *mctx;
 
 static perf_datafile_t *input;
+
+/* The plot data file */
+static const char *plotfile = "dnsperf.csv";
 
 static void
 handle_sigint(int sig)
@@ -429,6 +435,8 @@ setup(int argc, char **argv, config_t *config)
     perf_opt_add('y', perf_opt_string, "[alg:]name:secret",
                  "the TSIG algorithm, name and secret", NULL,
                  &tsigkey);
+    perf_opt_add('P', perf_opt_string, "plotfile",
+                 "the name of the plot data file", plotfile, &plotfile);
     perf_opt_add('q', perf_opt_uint, "num_queries",
                  "the maximum number of queries outstanding",
                  stringify(DEFAULT_MAX_OUTSTANDING),
@@ -699,6 +707,16 @@ process_timeouts(threadinfo_t *tinfo, isc_uint64_t now)
                             config->updates ? "Update" : "Query",
                             (unsigned int)(q - tinfo->queries));
         }
+	/* Log latency to file: thread socket queryID timestamp status rcode latency_us */
+	perf_log_fprintf(tinfo->plotf,
+			 "%u,%u,%u,%u.%06u,%c,,",
+			 tinfo->thread_id,
+			 q->sock,
+			 (unsigned int)(q - tinfo->queries),
+			 (unsigned int)(q->timestamp / MILLION),
+			 (unsigned int)(q->timestamp % MILLION),
+			 'T');
+
         q = ISC_LIST_TAIL(tinfo->outstanding_queries);
     } while (q != NULL && q->timestamp < now &&
              now - q->timestamp >= config->timeout);
@@ -873,6 +891,17 @@ do_recv(void *arg)
                                 (unsigned int)(latency % MILLION));
                 free(recvd[i].desc);
             }
+	    /* Log latency to file: thread socket queryID timestamp status rcode latency_us */
+	    perf_log_fprintf(tinfo->plotf,
+			     "%u,%u,%u,%u.%06u,%c,%u,%u",
+			     tinfo->thread_id,
+			     recvd[i].sock,
+			     recvd[i].qid,
+			     (unsigned int)(recvd[i].sent / MILLION),
+			     (unsigned int)(recvd[i].sent % MILLION),
+			     'R',
+			     recvd[i].rcode,
+			     latency);
 
             stats->num_completed++;
             stats->total_response_size += recvd[i].size;
@@ -967,6 +996,15 @@ cancel_queries(threadinfo_t *tinfo)
             free(q->desc);
             q->desc = NULL;
         }
+	/* Log latency to file: thread socket queryID timestamp status rcode latency_us */
+	perf_log_fprintf(tinfo->plotf,
+			 "%u,%u,%u,%u.%06u,%c,,",
+			 tinfo->thread_id,
+			 q->sock,
+			 (unsigned int)(q - tinfo->queries),
+			 (unsigned int)(q->timestamp / MILLION),
+			 (unsigned int)(q->timestamp % MILLION),
+			 'I');
     }
 }
 
@@ -982,14 +1020,17 @@ per_thread(isc_uint32_t total, isc_uint32_t nthreads, unsigned int offset)
 }
 
 static void
-threadinfo_init(threadinfo_t *tinfo, const config_t *config,
-                const times_t *times)
+threadinfo_init(threadinfo_t *tinfo, unsigned int thread_id,
+		const config_t *config, const times_t *times,
+		FILE *plotf)
 {
     unsigned int offset, socket_offset, i;
 
     memset(tinfo, 0, sizeof(*tinfo));
     MUTEX_INIT(&tinfo->lock);
     COND_INIT(&tinfo->cond);
+
+    tinfo->thread_id = thread_id;
 
     ISC_LIST_INIT(tinfo->outstanding_queries);
     ISC_LIST_INIT(tinfo->unused_queries);
@@ -1035,6 +1076,7 @@ threadinfo_init(threadinfo_t *tinfo, const config_t *config,
                                               socket_offset++,
                                               config->bufsize);
     tinfo->current_sock = 0;
+    tinfo->plotf = plotf;
 
     THREAD(&tinfo->receiver, do_recv, tinfo);
     THREAD(&tinfo->sender, do_send, tinfo);
@@ -1072,6 +1114,7 @@ main(int argc, char **argv)
     threadinfo_t stats_thread;
     unsigned int i;
     isc_result_t result;
+    FILE *plotf;
 
     printf("DNS Performance Testing Tool\n"
            "Nominum Version " VERSION "\n\n");
@@ -1087,11 +1130,20 @@ main(int argc, char **argv)
 
     print_initial_status(&config);
 
+    plotf = fopen(plotfile, "w");
+    if (! plotf) {
+        perf_log_fatal("could not open %s: %s", plotfile,
+                       strerror(errno));
+    }
+
+    /* Print column headers */
+    fprintf(plotf, "thread,socket,queryID,timestamp,status,rcode,latency_us\n");
+
     threads = isc_mem_get(mctx, config.threads * sizeof(threadinfo_t));
     if (threads == NULL)
         perf_log_fatal("out of memory");
     for (i = 0; i < config.threads; i++)
-        threadinfo_init(&threads[i], &config, &times);
+        threadinfo_init(&threads[i], i, &config, &times, plotf);
     if (config.stats_interval > 0) {
         stats_thread.config = &config;
         stats_thread.times = &times;
@@ -1133,6 +1185,8 @@ main(int argc, char **argv)
 
     sum_stats(&config, &total_stats);
     print_statistics(&config, &times, &total_stats);
+
+    fclose(plotf);
 
     isc_mem_put(mctx, threads, config.threads * sizeof(threadinfo_t));
     cleanup(&config);
