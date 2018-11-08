@@ -45,6 +45,7 @@
 
 #include <dns/rcode.h>
 #include <dns/result.h>
+#include <dns/rdataclass.h>
 
 #include "net.h"
 #include "datafile.h"
@@ -177,6 +178,9 @@ static int intrpipe[2];
 static isc_mem_t *mctx;
 
 static perf_datafile_t *input;
+
+static const char *query_class_text = "IN";
+static dns_rdataclass_t query_class;
 
 static void
 handle_sigint(int sig)
@@ -401,6 +405,9 @@ setup(int argc, char **argv, config_t *config)
                  stringify(DEFAULT_LOCAL_PORT), &local_port);
     perf_opt_add('d', perf_opt_string, "datafile",
                  "the input data file", "stdin", &filename);
+    perf_opt_add('C', perf_opt_string, "class",
+                 "the class of queries to send", query_class_text,
+		 &query_class_text);
     perf_opt_add('c', perf_opt_uint, "clients",
                  "the number of clients to act as", NULL,
                  &config->clients);
@@ -469,6 +476,14 @@ setup(int argc, char **argv, config_t *config)
 
     if (edns_option != NULL)
         config->edns_option = perf_dns_parseednsoption(edns_option, mctx);
+
+    /* Parse query class */
+    isc_buffer_init(&lines, query_class_text, sizeof(query_class_text));
+
+    if (dns_rdataclass_fromtext(&query_class, query_class_text) != ISC_R_SUCCESS)
+
+        perf_log_warning("Unable to parse query class, using IN");
+	
 
     /*
      * If we run more threads than max-qps, some threads will have
