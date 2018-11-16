@@ -2981,7 +2981,7 @@ fi
 if test "$ac_cv_isc_config" = "no"; then
   as_fn_error $? "BIND 9 libraries must be installed" "$LINENO" 5
 fi
-DNSLIBS="`$ac_cv_isc_config --libs dns bind9`"
+DNSLIBS="`$ac_cv_isc_config --libs dns bind9 | sed -e 's/-lk5crypto//;s/-lcom_err//;s/-lkrb5//;s/-lgssapi_krb5//;s/-lcap//;s/-lGeoIP//;s/-lxml2//'`"
 
 DNSCFLAGS="`$ac_cv_isc_config --cflags dns bind9`"
 
