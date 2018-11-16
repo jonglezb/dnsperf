@@ -17,6 +17,8 @@
 #ifndef PERF_LOG_H
 #define PERF_LOG_H 1
 
+#include <stdio.h>
+
 void
 perf_log_printf(const char *fmt, ...);
 
