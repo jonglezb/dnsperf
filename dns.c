@@ -590,7 +590,7 @@ build_query(const isc_textregion_t *line, isc_buffer_t *msg)
     }
 
     isc_buffer_putuint16(msg, qtype);
-    isc_buffer_putuint16(msg, dns_rdataclass_in);
+    isc_buffer_putuint16(msg, dns_rdataclass_ch);
 
     return ISC_R_SUCCESS;
 }
